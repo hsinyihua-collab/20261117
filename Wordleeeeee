@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>猜字遊戲 Wordle</title>
+<style>
+  :root {
+    --bg: #10151c; --tile: #3a4350; --text: #eef2f6; --muted: #8a97a8;
+    --correct: #2f9e6b; --present: #d9a21f; --absent: #2a313b; --key: #566274;
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 10px 24px;
+    -webkit-user-select: none; user-select: none; touch-action: manipulation;
+  }
+  h1 { margin: 0; font-size: 1.5rem; letter-spacing: .08em; }
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 6px; color: var(--text); }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--present); outline-offset: 2px; }
+  .langs { display: flex; gap: 8px; }
+  .langs button { background: transparent; border: 1px solid var(--tile); padding: 6px 14px; }
+  .langs button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 700; }
+  #msg { min-height: 1.5em; color: var(--present); font-weight: 600; text-align: center; }
+  #grid { display: grid; grid-template-columns: repeat(var(--cols), 1fr); gap: 6px; width: min(92vw, calc(var(--cols) * 64px)); }
+  .tile {
+    aspect-ratio: 1; border: 2px solid var(--tile); border-radius: 4px; display: flex;
+    align-items: center; justify-content: center; font-size: clamp(1.4rem, 7vw, 2rem); font-weight: 700;
+  }
+  #grid.zh .tile { font-size: clamp(1.6rem, 9vw, 2.4rem); }
+  .tile.filled { border-color: var(--muted); }
+  .tile.correct { background: var(--correct); border-color: var(--correct); }
+  .tile.present { background: var(--present); border-color: var(--present); }
+  .tile.absent { background: var(--absent); border-color: var(--absent); color: var(--muted); }
+  .tile.reveal { animation: pop .35s backwards; }
+  @keyframes pop { from { transform: scale(.6); opacity: .2; } to { transform: scale(1); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .tile.reveal { animation: none; } }
+  #kb { display: flex; flex-direction: column; gap: 6px; width: min(98vw, 500px); }
+  .krow { display: flex; gap: 5px; justify-content: center; }
+  .key { flex: 1; max-width: 44px; height: 52px; background: var(--key); font-weight: 700; padding: 0; }
+  .key.wide { max-width: 64px; flex: 1.5; }
+  .key[data-s="correct"] { background: var(--correct); }
+  .key[data-s="present"] { background: var(--present); }
+  .key[data-s="absent"] { background: var(--absent); color: var(--muted); }
+  #zhbar { display: flex; flex-direction: column; gap: 10px; align-items: center; width: min(92vw, 320px); }
+  #zhbar .r { display: flex; gap: 8px; width: 100%; }
+  #in {
+    flex: 1; min-width: 0; font: inherit; font-size: 1.2rem; padding: 10px; border-radius: 6px;
+    border: 1px solid var(--tile); background: #19212b; color: var(--text);
+    -webkit-user-select: text; user-select: text;
+  }
+  #submit { background: var(--correct); padding: 0 18px; font-weight: 700; }
+  #used { color: var(--muted); font-size: .95rem; min-height: 1.4em; text-align: center; word-break: break-all; }
+  #again { background: transparent; border: 1px solid var(--muted); padding: 8px 18px; }
+</style>
+</head>
+<body>
+  <h1>猜字遊戲</h1>
+  <div class="langs" role="group" aria-label="語言">
+    <button data-l="en" aria-pressed="false">English</button>
+    <button data-l="de" aria-pressed="false">Deutsch</button>
+    <button data-l="zh" aria-pressed="false">中文成語</button>
+  </div>
+  <div id="msg" role="status" aria-live="polite"></div>
+  <div id="grid"></div>
+
+  <div id="zhbar" hidden>
+    <div class="r">
+      <input id="in" type="text" placeholder="輸入四字成語" autocomplete="off" aria-label="輸入四字成語">
+      <button id="submit">送出</button>
+    </div>
+    <div id="used"></div>
+  </div>
+
+  <div id="kb"></div>
+  <button id="again">新遊戲</button>
+
+<script>
+(() => {
+  const WORDS = {
+    en: `crane apple brain cloud dream earth flame grape house juice lemon music night ocean piano queen river stone tiger water youth zebra bread chair dance eagle field ghost heart image jelly knife light money nurse olive paper quiet robot smile table uncle voice world angel beach candy drive enter frost giant honey lucky maple noble plant quick radio sugar train unity virus whale pearl storm trust shark plane clock brush sheep snake climb mouse pizza toast woman spoon blaze chess daisy flute glass`.split(' '),
+    de: `tisch stuhl apfel blume brief farbe feuer frage gabel grund haupt katze kerze kleid lampe leben licht linie magen milch musik nacht platz preis regen reise schaf sonne stein stern strom tasse tiger traum vogel wagen welle wolke wurst bauch birne fisch fluss geist heute insel kreis kraft mauer nebel nudel pferd radio ratte schuh spiel stadt tafel tanne teich torte unten wiese zebra ziege zweig`.split(' '),
+    zh: `一帆風順 一見鍾情 三心二意 四面八方 五光十色 六神無主 七上八下 八仙過海 九牛一毛 十全十美 畫龍點睛 守株待兔 亡羊補牢 狐假虎威 葉公好龍 井底之蛙 掩耳盜鈴 對牛彈琴 杯弓蛇影 刻舟求劍 買櫝還珠 望梅止渴 紙上談兵 破釜沉舟 臥薪嘗膽 完璧歸趙 負荊請罪 草木皆兵 愚公移山 精衛填海 夸父逐日 嫦娥奔月 鐵杵成針 洛陽紙貴 鶴立雞群 一石二鳥 小心翼翼 心想事成 萬事如意 花好月圓 春暖花開 風和日麗 山明水秀 鳥語花香 天長地久 海闊天空 實事求是 自強不息 持之以恆 見義勇為 大器晚成 半途而廢 與眾不同 理所當然 莫名其妙 目瞪口呆 異想天開 津津有味 興高采烈 全神貫注 迫不及待 馬到成功 龍飛鳳舞 虎頭蛇尾 雪中送炭 錦上添花 自相矛盾 三顧茅廬 老馬識途 塞翁失馬`.split(' ')
+  };
+  const LEN = { en: 5, de: 5, zh: 4 }, ROWS = 6;
+  const T = {
+    en: { short: 'Not enough letters', win: ['Genius!','Magnificent!','Impressive!','Splendid!','Great!','Phew!'], lose: 'The word was ' },
+    de: { short: 'Zu wenige Buchstaben', win: ['Genial!','Großartig!','Stark!','Sehr gut!','Gut!','Puh, geschafft!'], lose: 'Die Lösung war ' },
+    zh: { short: '要輸入四個字', win: ['太神了！','太厲害了！','很不錯！','答對了！','好險！','驚險過關！'], lose: '答案是：' }
+  };
+  const $ = s => document.querySelector(s);
+  const grid = $('#grid'), kb = $('#kb'), inp = $('#in'), msg = $('#msg'), zhbar = $('#zhbar'), used = $('#used');
+  let lang = 'en', answer, guesses, cur, over, keyState, absent, reveal = false, toastT;
+  try { lang = localStorage.getItem('wordle-lang') || 'en'; } catch (e) {}
+  if (!WORDS[lang]) lang = 'en';
+
+  function toast(t, sticky) {
+    msg.textContent = t; clearTimeout(toastT);
+    if (!sticky) toastT = setTimeout(() => msg.textContent = '', 1800);
+  }
+
+  function buildKb() {
+    kb.innerHTML = '';
+    const rows = lang === 'de' ? ['QWERTZUIOP', 'ASDFGHJKL', '⏎YXCVBNM⌫'] : ['QWERTYUIOP', 'ASDFGHJKL', '⏎ZXCVBNM⌫'];
+    rows.forEach(r => {
+      const d = document.createElement('div'); d.className = 'krow';
+      [...r].forEach(k => {
+        const b = document.createElement('button');
+        b.textContent = k; b.dataset.k = k;
+        b.className = 'key' + ('⏎⌫'.includes(k) ? ' wide' : '');
+        if (k === '⏎') b.setAttribute('aria-label', 'Enter');
+        if (k === '⌫') b.setAttribute('aria-label', 'Delete');
+        d.appendChild(b);
+      });
+      kb.appendChild(d);
+    });
+  }
+
+  function newGame() {
+    const L = LEN[lang], list = WORDS[lang];
+    answer = [...list[Math.floor(Math.random() * list.length)].toUpperCase()];
+    guesses = []; cur = []; over = false; keyState = {}; absent = new Set();
+    grid.style.setProperty('--cols', L);
+    grid.innerHTML = '<div class="tile"></div>'.repeat(ROWS * L);
+    grid.classList.toggle('zh', lang === 'zh');
+    kb.hidden = lang === 'zh'; zhbar.hidden = lang !== 'zh';
+    inp.value = ''; used.textContent = ''; msg.textContent = '';
+    document.documentElement.lang = { en: 'en', de: 'de', zh: 'zh-Hant' }[lang];
+    document.querySelectorAll('[data-l]').forEach(b => b.setAttribute('aria-pressed', b.dataset.l === lang));
+    buildKb(); render();
+    if (lang === 'zh') inp.focus();
+  }
+
+  function render() {
+    const L = LEN[lang], tiles = grid.children;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < L; c++) {
+      const t = tiles[r * L + c]; let txt = '', cls = 'tile';
+      if (r < guesses.length) {
+        txt = guesses[r].chars[c]; cls += ' ' + guesses[r].res[c];
+        if (reveal && r === guesses.length - 1) { cls += ' reveal'; t.style.animationDelay = c * 110 + 'ms'; }
+      } else if (r === guesses.length && cur[c]) { txt = cur[c]; cls += ' filled'; }
+      t.className = cls; t.textContent = txt;
+    }
+    reveal = false;
+    kb.querySelectorAll('.key').forEach(b => { b.dataset.s = keyState[b.dataset.k] || ''; });
+    used.textContent = absent.size ? '不在成語中的字：' + [...absent].join(' ') : '';
+  }
+
+  function score(g, a) {
+    const res = Array(g.length).fill('absent'), cnt = {};
+    g.forEach((ch, i) => { if (ch === a[i]) res[i] = 'correct'; else cnt[a[i]] = (cnt[a[i]] || 0) + 1; });
+    g.forEach((ch, i) => { if (res[i] !== 'correct' && cnt[ch] > 0) { res[i] = 'present'; cnt[ch]--; } });
+    return res;
+  }
+
+  function submit() {
+    if (over) return;
+    if (cur.length !== LEN[lang]) { toast(T[lang].short); return; }
+    const g = cur.slice(), res = score(g, answer), rank = { absent: 1, present: 2, correct: 3 };
+    guesses.push({ chars: g, res });
+    g.forEach((ch, i) => {
+      if (lang === 'zh') { if (res[i] === 'absent' && !answer.includes(ch)) absent.add(ch); }
+      else if (!keyState[ch] || rank[res[i]] > rank[keyState[ch]]) keyState[ch] = res[i];
+    });
+    cur = []; inp.value = ''; reveal = true; render();
+    if (g.join('') === answer.join('')) { over = true; toast(T[lang].win[guesses.length - 1], true); }
+    else if (guesses.length === ROWS) { over = true; toast(T[lang].lose + answer.join(''), true); }
+  }
+
+  function press(k) {
+    if (over) return;
+    if (k === '⏎') submit();
+    else if (k === '⌫') { cur.pop(); render(); }
+    else if (cur.length < LEN[lang]) { cur.push(k); render(); }
+  }
+
+  kb.addEventListener('click', e => { const b = e.target.closest('button'); if (b) press(b.dataset.k); });
+
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter') { e.preventDefault(); press('⏎'); return; }
+    if (lang === 'zh') return;
+    if (e.key === 'Backspace') press('⌫');
+    else if (/^[a-zA-Z]$/.test(e.key)) press(e.key.toUpperCase());
+  });
+
+  inp.addEventListener('input', e => {
+    cur = [...inp.value].filter(c => /[\u4e00-\u9fff]/.test(c)).slice(0, LEN.zh);
+    if (!e.isComposing) inp.value = cur.join('');
+    render();
+  });
+  $('#submit').addEventListener('click', submit);
+  $('#again').addEventListener('click', newGame);
+  document.querySelectorAll('[data-l]').forEach(b => b.addEventListener('click', () => {
+    lang = b.dataset.l;
+    try { localStorage.setItem('wordle-lang', lang); } catch (e) {}
+    newGame();
+  }));
+
+  newGame();
+})();
+</script>
+</body>
+</html>
